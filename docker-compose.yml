@@ -1,0 +1,63 @@
+services:
+  # Monitoring Stack (extends from common/monitoring/docker-compose.yml)
+  otel-collector:
+    extends:
+      file: ./common/monitoring/docker-compose.yml
+      service: otel-collector
+
+  prometheus:
+    extends:
+      file: ./common/monitoring/docker-compose.yml
+      service: prometheus
+    volumes:
+      - ./common/monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+  grafana:
+    extends:
+      file: ./common/monitoring/docker-compose.yml
+      service: grafana
+    volumes:
+      - ./common/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./common/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+
+  # Data Generator
+  data-gen:
+    build:
+      context: .
+      dockerfile: common/data-gen/Dockerfile
+    volumes:
+      - ./data:/app/data
+
+  # Python Implementation
+  python-impl:
+    build:
+      context: .
+      dockerfile: python/Dockerfile
+    networks:
+      - monitoring
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - data-gen
+    command: ["example_input_data_3.data", "12"]
+
+  # Go Implementation
+  go-impl:
+    build:
+      context: .
+      dockerfile: go/Dockerfile
+    networks:
+      - monitoring
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - data-gen
+    command: ["example_input_data_3.data", "12"]
+
+networks:
+  monitoring:
+    name: monitoring
+
+volumes:
+  prometheus_data:
+  grafana_data: 

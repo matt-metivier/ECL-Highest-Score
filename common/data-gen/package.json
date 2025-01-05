@@ -1,0 +1,12 @@
+{
+  "name": "ecl-highest-scores",
+  "version": "1.0.0",
+  "description": "ECL Coding Challenge - Highest Scores",
+  "main": "gen.js",
+  "dependencies": {
+    "chance": "^1.1.11"
+  },
+  "scripts": {
+    "generate": "node gen.js"
+  }
+} 
