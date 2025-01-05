@@ -1,0 +1,185 @@
+services:
+  # Monitoring Stack (extends from common/monitoring/docker-compose.yml)
+  otel-collector:
+    extends:
+      file: ./common/monitoring/docker-compose.yml
+      service: otel-collector
+
+  prometheus:
+    extends:
+      file: ./common/monitoring/docker-compose.yml
+      service: prometheus
+    volumes:
+      - ./common/monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+  grafana:
+    extends:
+      file: ./common/monitoring/docker-compose.yml
+      service: grafana
+    volumes:
+      - ./common/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./common/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+
+  # Data Generator
+  data-gen:
+    build:
+      context: .
+      dockerfile: common/data-gen/Dockerfile
+    volumes:
+      - ./data:/app/data
+
+  # Python Implementation - Batch Mode Tests
+  python-batch-small:
+    build:
+      context: .
+      dockerfile: python/Dockerfile
+    networks:
+      - monitoring
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - data-gen
+    command: ["example_input_data_1.data", "10"]
+
+  python-batch-medium:
+    build:
+      context: .
+      dockerfile: python/Dockerfile
+    networks:
+      - monitoring
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - python-batch-small
+    command: ["example_input_data_2.data", "10"]
+
+  python-batch-large:
+    build:
+      context: .
+      dockerfile: python/Dockerfile
+    networks:
+      - monitoring
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - python-batch-medium
+    command: ["example_input_data_3.data", "10"]
+
+  # Python Implementation - Streaming Mode Tests
+  python-stream-small:
+    build:
+      context: .
+      dockerfile: python/Dockerfile
+    networks:
+      - monitoring
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - python-batch-large
+    command: ["--stream", "example_input_data_1.data", "10"]
+
+  python-stream-medium:
+    build:
+      context: .
+      dockerfile: python/Dockerfile
+    networks:
+      - monitoring
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - python-stream-small
+    command: ["--stream", "example_input_data_2.data", "10"]
+
+  python-stream-large:
+    build:
+      context: .
+      dockerfile: python/Dockerfile
+    networks:
+      - monitoring
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - python-stream-medium
+    command: ["--stream", "example_input_data_3.data", "10"]
+
+  # Go Implementation - Batch Mode Tests
+  go-batch-small:
+    build:
+      context: .
+      dockerfile: go/Dockerfile
+    networks:
+      - monitoring
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - python-stream-large
+    command: ["example_input_data_1.data", "10"]
+
+  go-batch-medium:
+    build:
+      context: .
+      dockerfile: go/Dockerfile
+    networks:
+      - monitoring
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - go-batch-small
+    command: ["example_input_data_2.data", "10"]
+
+  go-batch-large:
+    build:
+      context: .
+      dockerfile: go/Dockerfile
+    networks:
+      - monitoring
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - go-batch-medium
+    command: ["example_input_data_3.data", "10"]
+
+  # Go Implementation - Streaming Mode Tests
+  go-stream-small:
+    build:
+      context: .
+      dockerfile: go/Dockerfile
+    networks:
+      - monitoring
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - go-batch-large
+    command: ["--stream", "example_input_data_1.data", "10"]
+
+  go-stream-medium:
+    build:
+      context: .
+      dockerfile: go/Dockerfile
+    networks:
+      - monitoring
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - go-stream-small
+    command: ["--stream", "example_input_data_2.data", "10"]
+
+  go-stream-large:
+    build:
+      context: .
+      dockerfile: go/Dockerfile
+    networks:
+      - monitoring
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - go-stream-medium
+    command: ["--stream", "example_input_data_3.data", "10"]
+
+networks:
+  monitoring:
+    name: monitoring
+
+volumes:
+  prometheus_data:
+  grafana_data: 

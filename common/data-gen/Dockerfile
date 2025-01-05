@@ -2,10 +2,15 @@ FROM node:18-slim
 
 WORKDIR /app
 
-COPY gen.js .
-COPY package.json .
+# Copy data generation files
+COPY common/data-gen/gen.js .
+COPY common/data-gen/package.json .
+
+# Install dependencies
 RUN npm install
 
-RUN mkdir -p /app/data && chmod 777 /app/data
+# Create output directory
+WORKDIR /app/data
 
-CMD ["node", "gen.js"] 
+# Run data generation
+CMD ["node", "/app/gen.js"] 

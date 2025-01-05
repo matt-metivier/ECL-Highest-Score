@@ -8,23 +8,26 @@ receivers:
 
 processors:
   batch:
-    timeout: 1s
+    timeout: 5s
     send_batch_size: 1024
+    send_batch_max_size: 2048
 
 exporters:
   prometheus:
     endpoint: "0.0.0.0:8889"
-    namespace: ""
+    namespace: "highest_scores"
+    const_labels:
+      service: "highest-scores"
     send_timestamps: true
     metric_expiration: 180m
     enable_open_metrics: true
-
-  debug:
-    verbosity: detailed
+    add_metric_suffixes: false
+    resource_to_telemetry_conversion:
+      enabled: false
 
 service:
   pipelines:
     metrics:
       receivers: [otlp]
       processors: [batch]
-      exporters: [prometheus, debug]
+      exporters: [prometheus]

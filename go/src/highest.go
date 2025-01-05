@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"container/heap"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -10,25 +11,33 @@ import (
 	"math/rand"
 	"os"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"net/http"
-
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
+	"go.opentelemetry.io/otel/metric"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/resource"
+	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
-// Record represents a single data record
 type Record struct {
 	ID      string          `json:"id"`
 	RawData json.RawMessage `json:"-"`
 	Score   int
 }
 
-// MinHeap implementation for maintaining top N scores
+type OutputRecord struct {
+	Score int    `json:"score"`
+	ID    string `json:"id"`
+}
+
 type MinHeap []Record
 
 func (h MinHeap) Len() int            { return len(h) }
@@ -43,146 +52,176 @@ func (h *MinHeap) Pop() interface{} {
 	return x
 }
 
-// Metrics
-var (
-	labels = prometheus.Labels{
-		"implementation": "go",
+type Metrics struct {
+	processedLines   metric.Int64Counter
+	heapOperations   metric.Int64Counter
+	processingTime   metric.Float64Histogram
+	memoryUsage      metric.Float64ObservableGauge
+	threadCount      metric.Int64ObservableGauge
+	bytesRead        metric.Int64Counter
+	cpuUsage         metric.Float64ObservableGauge
+	streamingLatency metric.Float64Histogram
+	meter            metric.Meter
+	addOpts          []metric.AddOption
+	recordOpts       []metric.RecordOption
+	observeOpts      []metric.ObserveOption
+}
+
+func newMetrics(runID string) (*Metrics, error) {
+	ctx := context.Background()
+
+	res := resource.NewWithAttributes(
+		semconv.SchemaURL,
+		semconv.ServiceName("highest-scores-go"),
+		semconv.ServiceInstanceID("go-impl"),
+	)
+
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	var conn *grpc.ClientConn
+	var err error
+	maxRetries := 5
+	for i := 0; i < maxRetries; i++ {
+		conn, err = grpc.DialContext(ctx, "otel-collector:4317",
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+			grpc.WithDefaultCallOptions(grpc.WaitForReady(true)),
+		)
+		if err == nil {
+			break
+		}
+		log.Printf("Failed to connect to collector (attempt %d/%d): %v", i+1, maxRetries, err)
+		time.Sleep(time.Second * time.Duration(2<<uint(i)))
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to collector after %d attempts: %v", maxRetries, err)
 	}
 
-	processedLines = promauto.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "processed_lines_total",
-			Help: "Number of lines processed",
-		},
-		[]string{"implementation", "run_id"},
+	exp, err := otlpmetricgrpc.New(ctx,
+		otlpmetricgrpc.WithGRPCConn(conn),
+		otlpmetricgrpc.WithRetry(otlpmetricgrpc.RetryConfig{
+			Enabled:         true,
+			InitialInterval: 1 * time.Second,
+			MaxInterval:     5 * time.Second,
+			MaxElapsedTime:  30 * time.Second,
+		}),
 	)
-
-	heapOperations = promauto.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "heap_operations_total",
-			Help: "Number of heap operations performed",
-		},
-		[]string{"implementation", "run_id"},
-	)
-
-	processingTime = promauto.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Name:    "processing_time_seconds",
-			Help:    "Time taken to process chunks",
-			Buckets: []float64{.001, .005, .01, .025, .05, .075, .1, .25, .5, .75, 1.0, 2.5, 5.0},
-		},
-		[]string{"implementation", "run_id"},
-	)
-
-	memoryUsage = promauto.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "memory_usage_bytes",
-			Help: "Current memory usage in bytes",
-		},
-		[]string{"implementation", "run_id"},
-	)
-
-	threadCount = promauto.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "thread_count",
-			Help: "Number of active threads/goroutines",
-		},
-		[]string{"implementation", "run_id"},
-	)
-
-	// New metrics
-	invalidRecords = promauto.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "invalid_records_total",
-			Help: "Number of invalid records encountered",
-		},
-		[]string{"implementation", "run_id", "error_type"},
-	)
-
-	bytesRead = promauto.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "bytes_read_total",
-			Help: "Number of bytes read from input",
-		},
-		[]string{"implementation", "run_id"},
-	)
-
-	gcStats = promauto.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "gc_stats",
-			Help: "Garbage collection statistics",
-		},
-		[]string{"implementation", "run_id", "stat_type"},
-	)
-
-	cpuUsage = promauto.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "cpu_usage_percent",
-			Help: "CPU usage percentage",
-		},
-		[]string{"implementation", "run_id"},
-	)
-)
-
-// updateResourceMetrics periodically updates resource usage metrics
-func updateResourceMetrics(runID string) {
-	labels := prometheus.Labels{
-		"implementation": "go",
-		"run_id":         runID,
+	if err != nil {
+		return nil, fmt.Errorf("failed to create exporter: %v", err)
 	}
 
-	for {
-		var m runtime.MemStats
-		runtime.ReadMemStats(&m)
+	meterProvider := sdkmetric.NewMeterProvider(
+		sdkmetric.WithResource(res),
+		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(exp, sdkmetric.WithInterval(5*time.Second))),
+	)
+	otel.SetMeterProvider(meterProvider)
 
-		// Memory metrics
-		memoryUsage.With(labels).Set(float64(m.Alloc))
-		threadCount.With(labels).Set(float64(runtime.NumGoroutine()))
+	meter := meterProvider.Meter("highest-scores")
+	attrs := []attribute.KeyValue{
+		attribute.String("implementation", "go"),
+		attribute.String("run_id", runID),
+	}
 
-		// GC stats
-		gcLabels := prometheus.Labels{
-			"implementation": "go",
-			"run_id":         runID,
-			"stat_type":      "gc_cycles",
+	m := &Metrics{
+		meter:       meter,
+		addOpts:     []metric.AddOption{metric.WithAttributes(attrs...)},
+		recordOpts:  []metric.RecordOption{metric.WithAttributes(attrs...)},
+		observeOpts: []metric.ObserveOption{metric.WithAttributes(attrs...)},
+	}
+
+	var err1, err2, err3, err4, err5, err6, err7, err8 error
+
+	m.processedLines, err1 = meter.Int64Counter(
+		"processed_lines_total",
+		metric.WithDescription("Number of lines processed"),
+		metric.WithUnit("1"),
+	)
+
+	m.heapOperations, err2 = meter.Int64Counter(
+		"heap_operations_total",
+		metric.WithDescription("Number of heap operations"),
+		metric.WithUnit("1"),
+	)
+
+	m.processingTime, err3 = meter.Float64Histogram(
+		"processing_time_seconds",
+		metric.WithDescription("Time taken to process chunks"),
+		metric.WithUnit("s"),
+	)
+
+	m.bytesRead, err4 = meter.Int64Counter(
+		"bytes_read_total",
+		metric.WithDescription("Number of bytes read from input"),
+		metric.WithUnit("bytes"),
+	)
+
+	m.streamingLatency, err5 = meter.Float64Histogram(
+		"streaming_latency_seconds",
+		metric.WithDescription("Time between receiving a line and updating results"),
+		metric.WithUnit("s"),
+	)
+
+	m.memoryUsage, err6 = meter.Float64ObservableGauge(
+		"memory_usage_bytes",
+		metric.WithDescription("Current memory usage"),
+		metric.WithUnit("bytes"),
+	)
+
+	m.threadCount, err7 = meter.Int64ObservableGauge(
+		"thread_count",
+		metric.WithDescription("Number of active threads"),
+		metric.WithUnit("1"),
+	)
+
+	m.cpuUsage, err8 = meter.Float64ObservableGauge(
+		"cpu_usage_percent",
+		metric.WithDescription("CPU usage percentage"),
+		metric.WithUnit("percent"),
+	)
+
+	if err := firstError(err1, err2, err3, err4, err5, err6, err7, err8); err != nil {
+		return nil, fmt.Errorf("failed to create metrics: %v", err)
+	}
+
+	return m, nil
+}
+
+func firstError(errs ...error) error {
+	for _, err := range errs {
+		if err != nil {
+			return err
 		}
-		gcStats.With(gcLabels).Set(float64(m.NumGC))
+	}
+	return nil
+}
 
-		gcLabels["stat_type"] = "gc_pause_ns"
-		gcStats.With(gcLabels).Set(float64(m.PauseTotalNs))
+func (m *Metrics) startResourceMetrics(ctx context.Context) {
+	_, err := m.meter.RegisterCallback(
+		func(ctx context.Context, o metric.Observer) error {
+			var memStats runtime.MemStats
+			runtime.ReadMemStats(&memStats)
 
-		gcLabels["stat_type"] = "heap_objects"
-		gcStats.With(gcLabels).Set(float64(m.HeapObjects))
-
-		// CPU usage (simplified)
-		var cpuUsageValue float64
-		if info, err := getCPUUsage(); err == nil {
-			cpuUsageValue = info
-		}
-		cpuUsage.With(labels).Set(cpuUsageValue)
-
-		time.Sleep(time.Second)
+			o.ObserveFloat64(m.memoryUsage, float64(memStats.Alloc), m.observeOpts...)
+			o.ObserveInt64(m.threadCount, int64(runtime.NumGoroutine()), m.observeOpts...)
+			o.ObserveFloat64(m.cpuUsage, 0.0, m.observeOpts...)
+			return nil
+		},
+		m.memoryUsage, m.threadCount, m.cpuUsage,
+	)
+	if err != nil {
+		log.Printf("Failed to register callback: %v", err)
 	}
 }
 
-func getCPUUsage() (float64, error) {
-	// This is a simplified version - in production you'd want to use something like gopsutil
-	// to get more accurate CPU metrics
-	return 0.0, nil
-}
-
-// processChunk processes a chunk of the file
-func processChunk(chunk []string, n int, runID string) []Record {
+func (m *Metrics) processChunk(ctx context.Context, chunk []string, n int) []Record {
 	h := &MinHeap{}
 	heap.Init(h)
 	startTime := time.Now()
 
-	labels := prometheus.Labels{
-		"implementation": "go",
-		"run_id":         runID,
-	}
-
 	for _, line := range chunk {
-		processedLines.With(labels).Inc()
+		lineStartTime := time.Now()
+		m.processedLines.Add(ctx, 1, m.addOpts...)
+		m.bytesRead.Add(ctx, int64(len(line)), m.addOpts...)
 
 		if strings.TrimSpace(line) == "" {
 			continue
@@ -202,78 +241,161 @@ func processChunk(chunk []string, n int, runID string) []Record {
 		if err := json.Unmarshal([]byte(parts[1]), &record); err != nil {
 			continue
 		}
+
+		if record.ID == "" {
+			continue
+		}
+
 		record.Score = score
 
 		if h.Len() < n {
 			heap.Push(h, record)
-			heapOperations.With(labels).Inc()
+			m.heapOperations.Add(ctx, 1, m.addOpts...)
 		} else if score > (*h)[0].Score {
 			heap.Pop(h)
 			heap.Push(h, record)
-			heapOperations.With(labels).Add(2) // Count both pop and push
+			m.heapOperations.Add(ctx, 2, m.addOpts...)
 		}
+
+		m.streamingLatency.Record(ctx, time.Since(lineStartTime).Seconds(), m.recordOpts...)
 	}
 
-	// Record processing time for the chunk
-	processingTime.With(labels).Observe(time.Since(startTime).Seconds())
+	m.processingTime.Record(ctx, time.Since(startTime).Seconds(), m.recordOpts...)
 
 	result := make([]Record, h.Len())
 	for i := len(result) - 1; i >= 0; i-- {
 		result[i] = heap.Pop(h).(Record)
-		heapOperations.With(labels).Inc()
+		m.heapOperations.Add(ctx, 1, m.addOpts...)
 	}
 	return result
 }
 
-func main() {
-	// Generate a unique run ID
-	rand.Seed(time.Now().UnixNano())
-	runID := fmt.Sprintf("%08x", rand.Int31())
-
-	// Start Prometheus metrics server
-	go func() {
-		http.Handle("/metrics", promhttp.Handler())
-		log.Fatal(http.ListenAndServe(":8001", nil))
-	}()
-
-	// Start resource metrics collection
-	go updateResourceMetrics(runID)
-
-	n := flag.Int("n", 5, "number of top scores to find")
-	filename := flag.String("file", "", "input file path")
-	flag.Parse()
-
-	if *filename == "" {
-		log.Fatal("Please provide an input file")
+func processFile(ctx context.Context, metrics *Metrics) error {
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: %s [--stream] input_file n\n", os.Args[0])
+		flag.PrintDefaults()
 	}
 
-	file, err := os.Open(*filename)
+	streamMode := flag.Bool("stream", false, "enable streaming mode")
+	flag.Parse()
+
+	args := flag.Args()
+	if len(args) != 2 {
+		return fmt.Errorf("usage: %s [--stream] input_file n", os.Args[0])
+	}
+
+	filename := args[0]
+	n, err := strconv.Atoi(args[1])
 	if err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("invalid value for n: %v", err)
+	}
+
+	if n <= 0 {
+		return fmt.Errorf("n must be positive")
+	}
+
+	file, err := os.Open(filename)
+	if err != nil {
+		return err
 	}
 	defer file.Close()
 
-	// Determine chunk size and number of workers
-	numWorkers := runtime.NumCPU()
-	chunkSize := 10000 // Adjust based on testing
+	if *streamMode {
+		return processStream(ctx, file, n, metrics)
+	}
+	return processBatch(ctx, file, n, metrics)
+}
 
-	// Create channels for work distribution
+func processStream(ctx context.Context, file *os.File, n int, metrics *Metrics) error {
+	h := &MinHeap{}
+	heap.Init(h)
+
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 64*1024), 1024*1024) // 64KB buffer, 1MB max line size
+
+	for scanner.Scan() {
+		lineStartTime := time.Now()
+		line := scanner.Text()
+		metrics.processedLines.Add(ctx, 1, metrics.addOpts...)
+		metrics.bytesRead.Add(ctx, int64(len(line)), metrics.addOpts...)
+
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+
+		metrics.streamingLatency.Record(ctx, time.Since(lineStartTime).Seconds(), metrics.recordOpts...)
+
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+
+		var score int
+		if _, err := fmt.Sscanf(parts[0], "%d", &score); err != nil {
+			continue
+		}
+
+		var record Record
+		if err := json.Unmarshal([]byte(parts[1]), &record); err != nil {
+			continue
+		}
+
+		if record.ID == "" {
+			continue
+		}
+
+		record.Score = score
+
+		if h.Len() < n {
+			heap.Push(h, record)
+			metrics.heapOperations.Add(ctx, 1, metrics.addOpts...)
+		} else if score > (*h)[0].Score {
+			heap.Pop(h)
+			heap.Push(h, record)
+			metrics.heapOperations.Add(ctx, 2, metrics.addOpts...)
+		}
+
+		metrics.streamingLatency.Record(ctx, time.Since(lineStartTime).Seconds(), metrics.recordOpts...)
+	}
+
+	output := make([]OutputRecord, h.Len())
+	for i := len(output) - 1; i >= 0; i-- {
+		record := heap.Pop(h).(Record)
+		output[i] = OutputRecord{Score: record.Score, ID: record.ID}
+		metrics.heapOperations.Add(ctx, 1, metrics.addOpts...)
+	}
+
+	jsonOutput, err := json.MarshalIndent(output, "", "    ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal output: %v", err)
+	}
+	fmt.Println(string(jsonOutput))
+
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("scanner error: %v", err)
+	}
+
+	return nil
+}
+
+func processBatch(ctx context.Context, file *os.File, n int, metrics *Metrics) error {
+	numWorkers := runtime.NumCPU()
+	chunkSize := 50000
+
 	chunks := make(chan []string, numWorkers)
 	results := make(chan []Record, numWorkers)
 	var wg sync.WaitGroup
 
-	// Start workers
 	for i := 0; i < numWorkers; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for chunk := range chunks {
-				results <- processChunk(chunk, *n, runID)
+				results <- metrics.processChunk(ctx, chunk, n)
 			}
 		}()
 	}
 
-	// Read and distribute chunks
 	go func() {
 		scanner := bufio.NewScanner(file)
 		currentChunk := make([]string, 0, chunkSize)
@@ -292,19 +414,17 @@ func main() {
 		close(chunks)
 	}()
 
-	// Collect and merge results
 	go func() {
 		wg.Wait()
 		close(results)
 	}()
 
-	// Merge results using a min-heap
 	finalHeap := &MinHeap{}
 	heap.Init(finalHeap)
 
 	for result := range results {
 		for _, record := range result {
-			if finalHeap.Len() < *n {
+			if finalHeap.Len() < n {
 				heap.Push(finalHeap, record)
 			} else if record.Score > (*finalHeap)[0].Score {
 				heap.Pop(finalHeap)
@@ -313,7 +433,6 @@ func main() {
 		}
 	}
 
-	// Convert to final output format
 	type OutputRecord struct {
 		Score int    `json:"score"`
 		ID    string `json:"id"`
@@ -325,10 +444,30 @@ func main() {
 		output[i] = OutputRecord{Score: record.Score, ID: record.ID}
 	}
 
-	// Output JSON
 	jsonOutput, err := json.MarshalIndent(output, "", "    ")
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(jsonOutput))
+	return nil
+}
+
+func main() {
+	timestamp := time.Now().Format("20060102-150405")
+	runID := fmt.Sprintf("go-%s-%x", timestamp, rand.Int31())
+
+	metrics, err := newMetrics(runID)
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Println(string(jsonOutput))
+
+	ctx := context.Background()
+	metrics.startResourceMetrics(ctx)
+
+	if err := processFile(ctx, metrics); err != nil {
+		log.Fatal(err)
+	}
+
+	log.Println("Processing complete. Waiting for metrics to be scraped...")
+	time.Sleep(5 * time.Second)
 }

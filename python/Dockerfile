@@ -1,18 +1,22 @@
 FROM python:3.11-slim
 
-RUN apt-get update && \
-    apt-get install -y nodejs npm && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
-
+# Set up working directory
 WORKDIR /app
-COPY common/data-gen/package.json common/data-gen/gen.js ./
-RUN npm install
-COPY python/src/highest.py ./
 
-RUN pip install opentelemetry-api opentelemetry-sdk opentelemetry-exporter-otlp psutil
+# Copy source code
+COPY python/src/highest.py .
 
-RUN printf '#!/bin/bash\nexport OTEL_EXPORTER_OTLP_ENDPOINT=grpc://otel-collector:4317\ncd /app/data\nif [ ! -f "$1" ]; then\n    echo "Generating data..."\n    node /app/gen.js "$1" 60000\nfi\npython /app/highest.py "$1" "$2"\n' > /app/entrypoint.sh && \
-    chmod +x /app/entrypoint.sh
+# Install dependencies
+RUN pip install opentelemetry-api \
+    opentelemetry-sdk \
+    opentelemetry-exporter-otlp-proto-grpc \
+    psutil
 
-ENTRYPOINT ["/app/entrypoint.sh"] 
+# Set up OpenTelemetry endpoint
+ENV OTEL_EXPORTER_OTLP_ENDPOINT=grpc://otel-collector:4317
+
+# Create data directory
+WORKDIR /app/data
+
+# Run the implementation
+ENTRYPOINT ["python", "/app/highest.py"] 

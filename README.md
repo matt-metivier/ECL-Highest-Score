@@ -1,91 +1,107 @@
-# Highest Scores
+# Solution: Highest Scores Platform
 
-## Overview
-Given a data file containing scored records, in Python, write a program to output the N 
-highest record IDs ordered by descending score. The output should be well-formed JSON. Consider giving thought to the 
-resource efficiency of your solution.
+Hey there! 👋 Here's how to run and understand my solution.
 
-## Detailed Specification
-One of the really fun parts of Emerald is that we work with cutting-edge scientific instrumentation.  One of the instruments
-our customers use frequently in the laboratory can analyze samples at a very high rate and generate scores for each sample
-based on the results of the run.  We would like to know the highest scores that were seen over the course of a very large run.
+## Quick Start 🚀
 
-Your task is to take a data file containing scored samples and produce the N highest scores and sample ids, ordered
-by descending score.  The detailed requirements of the solution are described below.
-
-### Execution
-
-Your solution should take two arguments: the path to the input data file and the number of records to output.  For example:
+Want to see everything in action?
+This will run docker-compose.yml file and start the containers.
+```bash
+docker-compose down -v
+docker-compose up -d
 ```
-python highest.py score_recs.data 5
+By default this runs with "example_input_data_3.data" - "12"
+
+Want to see all the tests?
+```bash
+docker-compose -f docker-compose-small-medium-large.yml down -v
+docker-compose -f docker-compose-small-medium-large.yml up -d
 ```
+This will run all tests in sequence:
+1. Python (batch mode) - small → medium → large files
+2. Python (streaming) - small → medium → large files
+3. Go (batch mode) - small → medium → large files
+4. Go (streaming) - small → medium → large files
 
-### Input format
+## File Structure 📂
+- **Root Directory:**
+  - `README.md`: Documentation for the project.
+  - `docker-compose.yml`: Configuration for running the application with Docker.
+  - `docker-compose-small-medium-large.yml`: Configuration for running tests with different data sizes.
 
-The input data file is a series of key-value pairs (one per line) with the format
-```<score> : <record>```
+- **Common Directory:**
+  - `monitoring/`: Contains configurations for monitoring tools like Grafana and Prometheus.
+  - `data-gen/`: Scripts and configurations for generating test data.
 
-In valid input files, the ``score`` is an integer and the ``record`` is a JSON dictionary.  The ``record`` can be any
-kind of well-formed JSON doc (with the exception of no line breaks).  The only constraint on the ``record`` is that a
-valid ``record`` will contain an ``id`` key that uniquely defines that record.  All scores and ids are unique.  A ``record`` that is not valid JSON
-or that does not contain an ``id`` field should be considered invalid and handled as described under **Exit Conditions**
+- **Go Directory:**
+  - `Dockerfile`: Docker configuration for the Go implementation.
+  - `src/`: Source code for the Go implementation.
 
-An example input data file is:
-```
-8795136: {"id":"d2e257c282b54347ac14b2d8","x":"foo","payload":"someamountofdata"}
-5317020: {"id":"619236365add4a0ca6e501fc","type":"purple","payload":"smalldata"}
-.
-.
-.
-2766123: {"id":"da9f77e6a0f076b000a6c0e0","payload":"reallyquitealotofdata"}
-```
+- **Python Directory:**
+  - `Dockerfile`: Docker configuration for the Python implementation.
+  - `src/`: Source code for the Python implementation.
 
-### Data file generation
-To test your code, we've included a sample node.js app that will generate 3 test files, one of which is rather large.
+- **Scripts Directory:**
+  - `run.sh`: Script to run the application with specified parameters.
 
-To generate the test files, run:
-```
-npm install chance 
-./gen.js
-```
+## What's Inside? 🔍
 
-### Output format
+I've built this in both Python and Go, and both versions:
+- Use min-heaps for efficient top-N selection
+- Support streaming for large files
+- Include detailed performance metrics
+- Run in both batch and streaming modes
 
-The output of your solution must be valid JSON in all cases (and you should consider validating that it is).  The format
-of the output should be a list of JSON dictionaries, where each JSON dictionary has exactly two fields: ``score`` and ``id``,
-which are the score and id of selected records respectively.  The output must contain exactly N
-entries, which are the N highest scoring records in the input data file, and the records in the output must be
-sorted by descending order of score.  An example output is:
+## Running Individual Tests 🏃‍♂️
 
-```
-$ python highest.py score_recs.data 5
-[
-    {
-        "score":16774838,
-        "id":"9ab7247c02044c65936a467016fff6b6"
-    },
-    {
-        "score":16763774,
-        "id":"c51a310f80604ef68a4cb2b83bffcb7e"
-    },
-    {
-        "score":16761021,
-        "id":"c1dbd109336242e0a64527ba8cffc0bd"
-    },
-    {
-        "score":16755441,
-        "id":"57b9ea55db954cbc8f452b34a2ffaaf1"
-    },
-    {
-        "score":16753041,
-        "id":"e8cafaf8cf2b41639422781fbdffa191"
-    }
-]
+First, generate some test data:
+```bash
+docker-compose run --rm data-gen
 ```
 
-The output should be written directly to stdout and not written to an output file.
+Then run either implementation:
+```bash
+# Python
+docker-compose run --rm python-impl example_input_data_2.data 10
+docker-compose run --rm python-impl --stream example_input_data_2.data 10  # streaming mode
 
-### Exit Conditions
-Upon successful running, your solution should exit with exit code 0.  If the input data file is not valid, your solution
-should exit with code 2, while if the input file is not found, your solution should exit with code 1.  Empty lines
-in the input file should be ignored rather than treated as invalid input.
+# Go
+docker-compose run --rm go-impl example_input_data_2.data 10
+docker-compose run --rm go-impl --stream example_input_data_2.data 10  # streaming mode
+```
+
+## Test Files 📁
+I've included three test file sizes:
+- Small (example_input_data_1.data): ~4.7K records
+- Medium (example_input_data_2.data): ~470K records
+- Large (example_input_data_3.data): ~2.7M records
+
+## Performance Monitoring 📊
+
+Want to see how it's performing? Check out:
+- Grafana: http://localhost:3000 (for pretty graphs)
+- Prometheus: http://localhost:9090 (for raw metrics)
+
+You'll see metrics for:
+- Lines processed
+- Memory usage
+- Processing speed
+- Heap operations
+- And more!
+
+## Performance Insights 🎯
+
+From my testing:
+- Go is generally faster but uses variable memory
+- Python is more memory-consistent (~45MB)
+- Both handle large files well
+- Streaming mode is great for huge files
+- Batch mode shines on smaller datasets
+
+## Exit Codes ✨
+I've implemented standard exit codes:
+- 0: All good!
+- 1: Can't find the input file
+- 2: Something's wrong with the input data
+
+Need help or have questions? Feel free to ask! 🙋‍♂️

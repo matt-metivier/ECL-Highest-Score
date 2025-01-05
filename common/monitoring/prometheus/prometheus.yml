@@ -10,14 +10,6 @@ scrape_configs:
     honor_labels: true
     metric_relabel_configs:
       - source_labels: [__name__]
-        regex: '.*_total|.*_seconds.*|.*_bytes|.*_count'
-        action: keep
-
-  - job_name: 'go-impl'
-    static_configs:
-      - targets: ['go-impl:8001']
-    metrics_path: '/metrics'
-    metric_relabel_configs:
-      - source_labels: [__name__]
-        regex: '.*_total|.*_seconds.*|.*_bytes|.*_count'
-        action: keep 
+        regex: '(processed_lines_total|heap_operations_total|processing_time_seconds.*|bytes_read_total|streaming_latency_seconds.*|memory_usage_bytes|thread_count|cpu_usage_percent)'
+        target_label: __name__
+        replacement: 'highest_scores_${1}' 

@@ -24,7 +24,7 @@
             "axisLabel": "Total Lines",
             "axisPlacement": "auto",
             "barAlignment": 0,
-            "drawStyle": "line",
+            "drawStyle": "points",
             "fillOpacity": 20,
             "gradientMode": "none",
             "hideFrom": {
@@ -34,12 +34,12 @@
             },
             "lineInterpolation": "linear",
             "lineWidth": 2,
-            "pointSize": 5,
+            "pointSize": 8,
             "scaleDistribution": {
               "type": "linear"
             },
             "showPoints": "always",
-            "spanNulls": true,
+            "spanNulls": false,
             "stacking": {
               "group": "A",
               "mode": "none"
@@ -88,7 +88,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "processed_lines_total{implementation=~\"python|go\"}",
+          "expr": "highest_scores_processed_lines_total{implementation=~\"python|go\"}",
           "instant": false,
           "legendFormat": "{{implementation}} - {{run_id}}",
           "range": true,
@@ -114,7 +114,7 @@
             "axisLabel": "Total Operations",
             "axisPlacement": "auto",
             "barAlignment": 0,
-            "drawStyle": "line",
+            "drawStyle": "points",
             "fillOpacity": 20,
             "gradientMode": "none",
             "hideFrom": {
@@ -124,12 +124,12 @@
             },
             "lineInterpolation": "linear",
             "lineWidth": 2,
-            "pointSize": 5,
+            "pointSize": 8,
             "scaleDistribution": {
               "type": "linear"
             },
             "showPoints": "always",
-            "spanNulls": true,
+            "spanNulls": false,
             "stacking": {
               "group": "A",
               "mode": "none"
@@ -178,7 +178,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "heap_operations_total{implementation=~\"python|go\"}",
+          "expr": "highest_scores_heap_operations_total{implementation=~\"python|go\"}",
           "instant": false,
           "legendFormat": "{{implementation}} - {{run_id}}",
           "range": true,
@@ -204,7 +204,7 @@
             "axisLabel": "Memory Usage",
             "axisPlacement": "auto",
             "barAlignment": 0,
-            "drawStyle": "line",
+            "drawStyle": "points",
             "fillOpacity": 20,
             "gradientMode": "none",
             "hideFrom": {
@@ -214,12 +214,12 @@
             },
             "lineInterpolation": "linear",
             "lineWidth": 2,
-            "pointSize": 5,
+            "pointSize": 8,
             "scaleDistribution": {
               "type": "linear"
             },
             "showPoints": "always",
-            "spanNulls": true,
+            "spanNulls": false,
             "stacking": {
               "group": "A",
               "mode": "none"
@@ -268,7 +268,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "memory_usage_bytes{implementation=~\"python|go\"}",
+          "expr": "highest_scores_memory_usage_bytes{implementation=~\"python|go\"}",
           "instant": false,
           "legendFormat": "{{implementation}} - {{run_id}}",
           "range": true,
@@ -294,7 +294,7 @@
             "axisLabel": "Processing Time",
             "axisPlacement": "auto",
             "barAlignment": 0,
-            "drawStyle": "line",
+            "drawStyle": "points",
             "fillOpacity": 20,
             "gradientMode": "none",
             "hideFrom": {
@@ -304,12 +304,12 @@
             },
             "lineInterpolation": "linear",
             "lineWidth": 2,
-            "pointSize": 5,
+            "pointSize": 8,
             "scaleDistribution": {
               "type": "linear"
             },
             "showPoints": "always",
-            "spanNulls": true,
+            "spanNulls": false,
             "stacking": {
               "group": "A",
               "mode": "none"
@@ -358,11 +358,35 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "processing_time_seconds_sum{implementation=~\"python|go\"} / processing_time_seconds_count{implementation=~\"python|go\"}",
+          "expr": "rate(highest_scores_processing_time_seconds_sum{implementation=~\"python|go\"}[30s])",
           "instant": false,
-          "legendFormat": "{{implementation}} - {{run_id}}",
+          "legendFormat": "{{implementation}} - {{run_id}} - avg",
           "range": true,
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, rate(highest_scores_processing_time_seconds_bucket{implementation=~\"python|go\"}[30s]))",
+          "instant": false,
+          "legendFormat": "{{implementation}} - {{run_id}} - p95",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.99, rate(highest_scores_processing_time_seconds_bucket{implementation=~\"python|go\"}[30s]))",
+          "instant": false,
+          "legendFormat": "{{implementation}} - {{run_id}} - p99",
+          "range": true,
+          "refId": "C"
         }
       ],
       "title": "Average Processing Time per Chunk",
@@ -381,189 +405,10 @@
           "custom": {
             "axisCenteredZero": false,
             "axisColorMode": "text",
-            "axisLabel": "Invalid Records",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 20,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "lineInterpolation": "linear",
-            "lineWidth": 2,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "always",
-            "spanNulls": true,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
-          "unit": "none"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 16
-      },
-      "id": 5,
-      "options": {
-        "legend": {
-          "calcs": ["lastNotNull", "max"],
-          "displayMode": "table",
-          "placement": "right",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "invalid_records_total{implementation=~\"python|go\"}",
-          "instant": false,
-          "legendFormat": "{{implementation}} - {{run_id}} - {{error_type}}",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "Invalid Records",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "GC Stats",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 20,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "lineInterpolation": "linear",
-            "lineWidth": 2,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "always",
-            "spanNulls": true,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 16
-      },
-      "id": 6,
-      "options": {
-        "legend": {
-          "calcs": ["lastNotNull", "max", "mean"],
-          "displayMode": "table",
-          "placement": "right",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "gc_stats{implementation=~\"python|go\"}",
-          "instant": false,
-          "legendFormat": "{{implementation}} - {{run_id}} - {{stat_type}}",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "GC Statistics",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
             "axisLabel": "Bytes",
             "axisPlacement": "auto",
             "barAlignment": 0,
-            "drawStyle": "line",
+            "drawStyle": "points",
             "fillOpacity": 20,
             "gradientMode": "none",
             "hideFrom": {
@@ -573,12 +418,12 @@
             },
             "lineInterpolation": "linear",
             "lineWidth": 2,
-            "pointSize": 5,
+            "pointSize": 8,
             "scaleDistribution": {
               "type": "linear"
             },
             "showPoints": "always",
-            "spanNulls": true,
+            "spanNulls": false,
             "stacking": {
               "group": "A",
               "mode": "none"
@@ -605,9 +450,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 24
+        "y": 16
       },
-      "id": 7,
+      "id": 5,
       "options": {
         "legend": {
           "calcs": ["lastNotNull", "max", "mean"],
@@ -627,7 +472,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "bytes_read_total{implementation=~\"python|go\"}",
+          "expr": "highest_scores_bytes_read_total{implementation=~\"python|go\"}",
           "instant": false,
           "legendFormat": "{{implementation}} - {{run_id}}",
           "range": true,
@@ -635,6 +480,120 @@
         }
       ],
       "title": "Total Bytes Read",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "Seconds",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "points",
+            "fillOpacity": 20,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 8,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "always",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "id": 7,
+      "options": {
+        "legend": {
+          "calcs": ["lastNotNull", "max", "mean", "p95"],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "rate(highest_scores_streaming_latency_seconds_sum{implementation=~\"python|go\"}[30s])",
+          "instant": false,
+          "legendFormat": "{{implementation}} - {{run_id}} - avg",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, rate(highest_scores_streaming_latency_seconds_bucket{implementation=~\"python|go\"}[30s]))",
+          "instant": false,
+          "legendFormat": "{{implementation}} - {{run_id}} - p95",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.99, rate(highest_scores_streaming_latency_seconds_bucket{implementation=~\"python|go\"}[30s]))",
+          "instant": false,
+          "legendFormat": "{{implementation}} - {{run_id}} - p99",
+          "range": true,
+          "refId": "C"
+        }
+      ],
+      "title": "Average Streaming Latency",
       "type": "timeseries"
     }
   ],
